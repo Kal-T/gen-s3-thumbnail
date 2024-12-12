@@ -1,0 +1,88 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+org: ikal09
+# "service" is the name of this project. This will also be added to your AWS resource names.
+service: ikal-python-thumbnail
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: ap-northeast-1
+  stage: dev
+  timeout: 10
+  memorySize: 128
+  environment:
+    THUMBNAIL_SIZE: 128
+    REGION_NAME: ${self:provider.region}
+    DYNAMODB_TABLE: ${self:custom.dynamoTable}
+
+  iam:
+    role:
+      statements:
+        - Effect: 'Allow'
+          Resource: '*'
+          Action: 's3:*'
+        - Effect: 'Allow'
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}"
+
+custom:
+  bucket: ikal-s3-image-thumbnails
+  dynamoTable: img-url-table
+  pythonRequirements:
+    dockerizePip: true
+
+functions:
+  s3_thumbnail_generator:
+    handler: handler.s3_thumbnail_generator
+    events:
+      - s3:
+          bucket: ${self:custom.bucket}
+          event: s3:ObjectCreated:*
+          rules:
+            - suffix: .png
+  list:
+      handler: handler.s3_get_thumbnail_urls
+      events:
+        - http:
+            path: images/all
+            method: get
+            cors: true
+  get: 
+     handler: handler.s3_get_item
+     events:
+       - http:
+           path: images/get/{id}
+           method: get 
+           cors: true
+  delete:
+      handler: handler.s3_delete_item
+      events:
+        - http:
+            path: images/delete/{id}
+            method: delete 
+            cors: true
+
+resources:
+  Resources:
+    ImagesDynamoDbTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
+
+plugins:
+  - serverless-python-requirements
